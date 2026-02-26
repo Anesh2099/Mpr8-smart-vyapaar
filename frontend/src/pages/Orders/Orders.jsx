@@ -1,8 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
@@ -21,95 +31,35 @@ import {
   Star,
   MessageSquare,
   Clock,
+  Trash2,
+  Search,
+  Plus,
 } from 'lucide-react';
 import useChatStore from '@/store/useChatStore';
 import toast from 'react-hot-toast';
+import { supplierApi } from '@/api/supplier';
 
 const Orders = () => {
-  const { addMessage, setChatPanelOpen } = useChatStore();
+  const { sendMessageToAgent, setChatPanelOpen } = useChatStore();
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
 
-  const purchaseOrders = [
-    {
-      id: 'PO-001',
-      supplier: 'ABC Suppliers',
-      date: '2024-01-15',
-      status: 'Pending',
-      total: '₹45,600',
-      items: 12,
-      notes: 'Urgent delivery required',
-    },
-    {
-      id: 'PO-002',
-      supplier: 'Dairy Direct',
-      date: '2024-01-14',
-      status: 'Confirmed',
-      total: '₹23,400',
-      items: 8,
-      notes: 'Weekly order',
-    },
-    {
-      id: 'PO-003',
-      supplier: 'Beverage Co',
-      date: '2024-01-13',
-      status: 'Delivered',
-      total: '₹12,800',
-      items: 15,
-      notes: '',
-    },
-    {
-      id: 'PO-004',
-      supplier: 'FMCG Distributors',
-      date: '2024-01-12',
-      status: 'Cancelled',
-      total: '₹8,900',
-      items: 6,
-      notes: 'Price too high',
-    },
-  ];
+  // New order form states
+  const [isOrderOpen, setIsOrderOpen] = useState(false);
+  const [newOrderSupplier, setNewOrderSupplier] = useState('');
+  const [newOrderItems, setNewOrderItems] = useState('');
+  const [newOrderTotal, setNewOrderTotal] = useState('');
 
-  const suppliers = [
-    {
-      id: 1,
-      name: 'ABC Suppliers',
-      rating: 4.5,
-      phone: '+91 98765 43210',
-      email: 'contact@abcsuppliers.com',
-      leadTime: '2-3 days',
-      totalOrders: 45,
-      specialty: 'Groceries & Essentials',
-    },
-    {
-      id: 2,
-      name: 'Dairy Direct',
-      rating: 4.8,
-      phone: '+91 98765 43211',
-      email: 'orders@dairydirect.com',
-      leadTime: '1 day',
-      totalOrders: 120,
-      specialty: 'Dairy Products',
-    },
-    {
-      id: 3,
-      name: 'Beverage Co',
-      rating: 4.2,
-      phone: '+91 98765 43212',
-      email: 'sales@beverageco.com',
-      leadTime: '3-4 days',
-      totalOrders: 32,
-      specialty: 'Soft Drinks & Beverages',
-    },
-    {
-      id: 4,
-      name: 'FMCG Distributors',
-      rating: 4.6,
-      phone: '+91 98765 43213',
-      email: 'info@fmcg.com',
-      leadTime: '2 days',
-      totalOrders: 67,
-      specialty: 'Fast Moving Consumer Goods',
-    },
-  ];
+  const fetchOrders = async () => {
+    try {
+      const poRes = await supplierApi.getPurchaseOrders();
+      setPurchaseOrders(poRes.orders || poRes.purchase_orders || []);
+    } catch { toast.error("Failed to load orders"); }
+  };
 
+  // Deliveries data is kept static as it's not fully handled by backend yet
   const deliveries = [
     {
       id: 'DEL-001',
@@ -129,17 +79,98 @@ const Orders = () => {
     },
   ];
 
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const [poRes, supRes] = await Promise.all([
+          supplierApi.getPurchaseOrders(),
+          supplierApi.getSuppliers()
+        ]);
+        setPurchaseOrders(poRes.orders || poRes.purchase_orders || []);
+        // Match either key the python backend tends to serialize
+        const sList = supRes.suppliers || [];
+        setSuppliers(sList);
+      } catch (err) {
+        console.error("Failed to load supplier data", err);
+        toast.error("Failed to load backend supplier data.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
   const handleNegotiate = (supplier) => {
-    const query = `I want to negotiate better prices with ${supplier.name}. Can you help me draft a negotiation strategy?`;
-    addMessage({
-      role: 'user',
-      content: query,
-    });
+    const query = `I want to negotiate better prices with my supplier: ${supplier.name}. They supply ${supplier.categories?.join(', ')}. Can you draft a negotiation strategy?`;
+    sendMessageToAgent(query);
     setChatPanelOpen(true);
     toast.success('Negotiation request sent to AI Agent!');
   };
 
+  const handleContact = (supplier) => {
+    if (supplier.email) {
+      window.location.href = `mailto:${supplier.email}`;
+    } else {
+      toast.success(`Contacting ${supplier.supplierName || supplier.name} via ${supplier.contact || supplier.phone || 'phone'}`);
+    }
+  };
+
+  const handleTrack = (delivery) => {
+    toast.success(`Opening tracking information for ${delivery.tracking}...`);
+  };
+
+  const handleAddOrder = async () => {
+    try {
+      if (!newOrderSupplier || !newOrderTotal) return toast.error("Supplier and Total are required");
+      const orderData = {
+        supplier: newOrderSupplier,
+        items: parseInt(newOrderItems) || 1,
+        amount: parseFloat(newOrderTotal),
+        status: "Pending",
+        date: new Date().toISOString().split('T')[0],
+        store_id: "store001"
+      };
+      await supplierApi.addPurchaseOrder(orderData);
+      toast.success("Purchase order created!");
+      setIsOrderOpen(false);
+      setNewOrderSupplier(''); setNewOrderItems(''); setNewOrderTotal('');
+      fetchOrders();
+    } catch (e) { toast.error("Failed to create order"); }
+  };
+
+  const handleDeleteOrder = async (id) => {
+    if (!window.confirm('Delete this purchase order? This cannot be undone.')) return;
+    try {
+      await supplierApi.deletePurchaseOrder(id);
+      toast.success("Order deleted");
+      fetchOrders();
+    } catch (e) { toast.error("Failed to delete order"); }
+  };
+
+  const handleAskAgent = (order) => {
+    const query = `Analyze the status and impact of this purchase order from ${order.supplier} for ₹${order.amount || order.total}.`;
+    sendMessageToAgent(query);
+    setChatPanelOpen(true);
+    toast.success('Query sent to AI Assistant!');
+  };
+
+  // Dynamic stats
+  const activeOrdersCount = purchaseOrders.filter(o => o.status !== "Delivered").length;
+  const totalSpent = purchaseOrders.reduce((sum, o) => sum + (parseFloat(o.amount) || parseFloat(o.total) || 0), 0);
+
+  const filteredOrders = purchaseOrders.filter(o => {
+    const q = orderSearchQuery.toLowerCase();
+    if (!q) return true;
+    return (
+      (o.id && o.id.toLowerCase().includes(q)) ||
+      (o.supplier && o.supplier.toLowerCase().includes(q)) ||
+      (o.items && o.items.toLowerCase().includes(q))
+    );
+  });
+
   const getStatusColor = (status) => {
+    if (!status) return 'default';
     switch (status.toLowerCase()) {
       case 'pending':
         return 'default';
@@ -176,7 +207,7 @@ const Orders = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12</div>
+            <div className="text-2xl font-bold">{activeOrdersCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -208,7 +239,7 @@ const Orders = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">₹82,800</div>
+            <div className="text-2xl font-bold">₹{totalSpent.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
       </div>
@@ -229,9 +260,55 @@ const Orders = () => {
                 <CardTitle>Purchase Orders</CardTitle>
                 <CardDescription>Track and manage your purchase orders</CardDescription>
               </div>
-              <Button>Create New Order</Button>
+              <Dialog open={isOrderOpen} onOpenChange={setIsOrderOpen}>
+                <DialogTrigger asChild>
+                  <Button>Create New Order</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create Purchase Order</DialogTitle>
+                    <DialogDescription>Draft a new order to a supplier</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Supplier Name</Label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                        value={newOrderSupplier}
+                        onChange={e => setNewOrderSupplier(e.target.value)}
+                      >
+                        <option value="">Select a supplier...</option>
+                        {suppliers.map(s => (
+                          <option key={s.id} value={s.supplierName || s.name}>{s.supplierName || s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Number of Items</Label>
+                        <Input type="number" value={newOrderItems} onChange={e => setNewOrderItems(e.target.value)} placeholder="1" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Total Amount (₹)</Label>
+                        <Input type="number" value={newOrderTotal} onChange={e => setNewOrderTotal(e.target.value)} placeholder="5000" />
+                      </div>
+                    </div>
+                    <Button className="w-full" onClick={handleAddOrder}>Submit Order</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </CardHeader>
             <CardContent>
+              {/* Search bar */}
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-10"
+                  placeholder="Search by PO ID, supplier, or items..."
+                  value={orderSearchQuery}
+                  onChange={e => setOrderSearchQuery(e.target.value)}
+                />
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -246,7 +323,7 @@ const Orders = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {purchaseOrders.map((order, index) => (
+                  {filteredOrders.map((order, index) => (
                     <motion.tr
                       key={order.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -255,19 +332,24 @@ const Orders = () => {
                     >
                       <TableCell className="font-mono font-semibold">{order.id}</TableCell>
                       <TableCell>{order.supplier}</TableCell>
-                      <TableCell>{order.date}</TableCell>
+                      <TableCell>{order.date ? (order.date.includes('-') ? order.date.split('-').reverse().join('/') : order.date) : (order.timestamp ? new Date(order.timestamp).toLocaleDateString('en-GB') : 'N/A')}</TableCell>
                       <TableCell>{order.items} items</TableCell>
                       <TableCell>
                         <Badge variant={getStatusColor(order.status)}>{order.status}</Badge>
                       </TableCell>
-                      <TableCell className="font-semibold">{order.total}</TableCell>
+                      <TableCell className="font-semibold">{order.amount || order.total}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {order.notes || '-'}
                       </TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline">
-                          View
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600" onClick={() => handleAskAgent({ name: order.supplier, ...order })}>
+                            <MessageSquare className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600" onClick={() => handleDeleteOrder(order.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </motion.tr>
                   ))}
@@ -291,12 +373,12 @@ const Orders = () => {
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div>
-                        <CardTitle className="text-lg">{supplier.name}</CardTitle>
-                        <CardDescription>{supplier.specialty}</CardDescription>
+                        <CardTitle className="text-lg">{supplier.supplierName || supplier.name}</CardTitle>
+                        <CardDescription>{supplier.products ? supplier.products.join(', ') : supplier.specialty}</CardDescription>
                       </div>
                       <div className="flex items-center gap-1">
                         <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-semibold">{supplier.rating}</span>
+                        <span className="font-semibold">{supplier.reliability || supplier.rating}</span>
                       </div>
                     </div>
                   </CardHeader>
@@ -304,21 +386,21 @@ const Orders = () => {
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Phone className="h-4 w-4" />
-                        {supplier.phone}
+                        {supplier.contact || supplier.phone}
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Mail className="h-4 w-4" />
-                        {supplier.email}
+                        {supplier.email || 'N/A'}
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Clock className="h-4 w-4" />
-                        Lead Time: {supplier.leadTime}
+                        Lead Time: {supplier.leadTimeDays || supplier.leadTime} days
                       </div>
                     </div>
                     <div className="flex items-center justify-between pt-2">
                       <Badge variant="secondary">{supplier.totalOrders} orders</Badge>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline">
+                        <Button size="sm" variant="outline" onClick={() => handleContact(supplier)}>
                           Contact
                         </Button>
                         <Button
@@ -377,7 +459,7 @@ const Orders = () => {
                       </TableCell>
                       <TableCell className="font-mono text-xs">{delivery.tracking}</TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline">
+                        <Button size="sm" variant="outline" onClick={() => handleTrack(delivery)}>
                           Track
                         </Button>
                       </TableCell>

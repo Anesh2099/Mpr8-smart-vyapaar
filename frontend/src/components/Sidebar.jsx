@@ -8,6 +8,7 @@ import {
   Settings,
   Bot,
   Store,
+  FileText,
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -16,7 +17,8 @@ const Sidebar = () => {
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/inventory', icon: Package, label: 'Inventory' },
-    { path: '/orders', icon: ShoppingCart, label: 'Orders' },
+    { path: '/sales', icon: FileText, label: 'Customer Sales' },
+    { path: '/orders', icon: ShoppingCart, label: 'Supplier Orders' },
     { path: '/insights', icon: TrendingUp, label: 'Insights' },
     { path: '/agents', icon: Bot, label: 'Agents' },
     { path: '/settings', icon: Settings, label: 'Settings' },

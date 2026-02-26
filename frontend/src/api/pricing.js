@@ -1,23 +1,8 @@
-import axios from 'axios';
+// pricing.js — Now correctly points to the FastAPI backend
+// Previously this file targeted a dead http://localhost:5001 URL.
+// All pricing functionality is now accessed via inventoryApi.getPricing() in inventory.js.
+// This file is kept as a re-export stub for backwards compatibility.
+import { inventoryApi } from './inventory';
 
-const API_URL = 'http://localhost:5001/api/pricing';
-
-export const getPricing = async () => {
-    const response = await axios.get(API_URL);
-    return response.data;
-};
-
-export const addPricing = async (pricingData) => {
-    const response = await axios.post(API_URL, pricingData);
-    return response.data;
-};
-
-export const updatePricing = async (id, updateData) => {
-    const response = await axios.put(`${API_URL}/${id}`, updateData);
-    return response.data;
-};
-
-export const deletePricing = async (id) => {
-    const response = await axios.delete(`${API_URL}/${id}`);
-    return response.data;
-};
+export const getPricingRecommendation = (productId, storeId = 'store001') =>
+    inventoryApi.getPricing(productId, storeId);

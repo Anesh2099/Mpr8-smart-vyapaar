@@ -1,0 +1,13 @@
+fastapi==0.133.0
+uvicorn==0.41.0
+pydantic==2.12.5
+python-dotenv==1.2.1
+firebase-admin==7.1.0
+openai==2.23.0
+groq
+pandas
+requests
+beautifulsoup4
+google-auth
+google-auth-oauthlib
+google-api-python-client

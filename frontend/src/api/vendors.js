@@ -1,23 +1,5 @@
-import axios from 'axios';
-
-const API_URL = 'http://localhost:5001/api/vendors';
-
-export const getVendors = async () => {
-    const response = await axios.get(API_URL);
-    return response.data;
-};
-
-export const addVendor = async (vendorData) => {
-    const response = await axios.post(API_URL, vendorData);
-    return response.data;
-};
-
-export const updateVendor = async (id, updateData) => {
-    const response = await axios.put(`${API_URL}/${id}`, updateData);
-    return response.data;
-};
-
-export const deleteVendor = async (id) => {
-    const response = await axios.delete(`${API_URL}/${id}`);
-    return response.data;
-};
+// vendors.js — Now correctly points to the FastAPI backend
+// Previously this file targeted a dead http://localhost:5001 URL.
+// All vendor/supplier functionality is now accessed via supplierApi in supplier.js.
+// This file is kept as a re-export stub for backwards compatibility.
+export { supplierApi as vendorsApi } from './supplier';

@@ -12,84 +12,178 @@ import {
   CheckCircle,
   Clock,
   DollarSign,
+  X,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import useChatStore from '@/store/useChatStore';
+import { agentApi } from '@/api/agents';
+import { inventoryApi } from '@/api/inventory';
+import { salesApi } from '@/api/sales';
+import { supplierApi } from '@/api/supplier';
+import { useState, useEffect } from 'react';
 
 const Dashboard = () => {
-  const { shopInfo } = useChatStore();
+  const { shopInfo, sendMessageToAgent, setChatPanelOpen } = useChatStore();
+  const [alerts, setAlerts] = useState([]);
+
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const data = await agentApi.getAlerts(shopInfo.id);
+        const fetchedAlerts = data.alerts || [];
+        setAlerts(fetchedAlerts.slice(0, 5)); // show top 5 on dashboard
+      } catch (err) {
+        console.error("Failed to load alerts", err);
+      }
+    };
+    fetchAlerts();
+  }, [shopInfo.id]);
+
+  const [dashboardStats, setDashboardStats] = useState({
+    todaysSales: 0,
+    totalOrders: 0,
+    lowStock: 0,
+    activeProducts: 0
+  });
+
+  const [salesData, setSalesData] = useState([]);
+  const [topProducts, setTopProducts] = useState([]);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        const [invRes, salesRes, ordersRes] = await Promise.all([
+          inventoryApi.getStatus(),
+          salesApi.getSales(),
+          supplierApi.getPurchaseOrders()
+        ]);
+
+        const products = invRes.products || [];
+        const sales = salesRes.sales || [];
+        const orders = ordersRes.orders || ordersRes.purchase_orders || [];
+
+        const lowStockCount = products.filter(p => Number(p.stock) < Number(p.reorderLevel)).length;
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const getDbDateStr = (s) => s.date || (s.timestamp ? new Date(s.timestamp).toISOString().split('T')[0] : "");
+
+        const todaysSalesList = sales.filter(s => getDbDateStr(s) === todayStr);
+        const todaysRevenue = todaysSalesList.reduce((sum, s) => sum + (parseFloat(s.total) || parseFloat(s.price) * parseFloat(s.quantity) || 0), 0);
+
+        setDashboardStats({
+          todaysSales: todaysRevenue,
+          totalOrders: orders.length,
+          lowStock: lowStockCount,
+          activeProducts: products.length
+        });
+
+        // Compute past 7 days sales data for chart
+        const past7Days = [...Array(7)].map((_, i) => {
+          const d = new Date();
+          d.setDate(d.getDate() - (6 - i));
+          return d.toISOString().split('T')[0];
+        });
+
+        let trends = past7Days.map(date => {
+          const daySales = sales.filter(s => getDbDateStr(s) === date);
+          const dailyTotal = daySales.reduce((sum, s) => sum + (parseFloat(s.total) || parseFloat(s.price) * parseFloat(s.quantity) || 0), 0);
+          const [y, m, d] = date.split('-');
+          return { name: `${d}/${m}`, sales: dailyTotal }; // "DD/MM"
+        });
+        setSalesData(trends);
+
+        // Compute top products
+        const productMap = {};
+        sales.forEach(sale => {
+          if (sale.items) {
+            sale.items.forEach(item => {
+              if (!productMap[item.name]) productMap[item.name] = { sales: 0, revenue: 0 };
+              productMap[item.name].sales += (item.quantity || 1);
+              productMap[item.name].revenue += (parseFloat(item.price) || 0) * (item.quantity || 1);
+            });
+          }
+        });
+
+        const sortedProducts = Object.keys(productMap)
+          .map(name => ({
+            name,
+            sales: productMap[name].sales,
+            revenue: `₹${productMap[name].revenue.toLocaleString('en-IN')}`
+          }))
+          .sort((a, b) => b.sales - a.sales)
+          .slice(0, 4);
+
+        setTopProducts(sortedProducts);
+
+      } catch (err) { console.error("Failed to load dashboard data", err); }
+    };
+
+    fetchDashboardData();
+  }, []);
 
   const stats = [
     {
       title: "Today's Sales",
-      value: '₹45,231',
-      change: '+12%',
+      value: `₹${dashboardStats.todaysSales.toLocaleString('en-IN')}`,
+      change: 'Live',
       trend: 'up',
       icon: DollarSign,
     },
     {
-      title: 'Total Orders',
-      value: '124',
-      change: '+8%',
+      title: 'Total Purchase Orders',
+      value: dashboardStats.totalOrders,
+      change: 'Active',
       trend: 'up',
       icon: ShoppingCart,
     },
     {
       title: 'Low Stock Items',
-      value: '8',
-      change: '+2',
-      trend: 'down',
+      value: dashboardStats.lowStock,
+      change: 'Action Needed',
+      trend: dashboardStats.lowStock > 0 ? 'down' : 'up',
       icon: AlertTriangle,
     },
     {
       title: 'Active Products',
-      value: '342',
-      change: '+15',
+      value: dashboardStats.activeProducts,
+      change: 'In Catalog',
       trend: 'up',
       icon: Package,
     },
   ];
 
-  const salesData = [
-    { name: 'Mon', sales: 4000 },
-    { name: 'Tue', sales: 3000 },
-    { name: 'Wed', sales: 5000 },
-    { name: 'Thu', sales: 4500 },
-    { name: 'Fri', sales: 6000 },
-    { name: 'Sat', sales: 5500 },
-    { name: 'Sun', sales: 4800 },
-  ];
+  const handleActionClick = (alert) => {
+    // Build rich context so AI knows exactly which product we're discussing
+    const productName = alert.product_name || alert.title || alert.type;
+    const stockInfo = alert.message || '';
+    const action = alert.suggested_action || alert.type;
+    const msg = alert.type === 'low_stock'
+      ? `I need help with a low stock situation in my kirana store. Product: "${productName}". ${stockInfo}. Suggested action: ${action}. Please give me specific steps to reorder this product, suggest a reorder quantity, and recommend where to source it quickly.`
+      : alert.type === 'expiry'
+        ? `I need help with a near-expiry product. Product: "${productName}". ${stockInfo}. Please suggest a clearance strategy — should I discount it, bundle it, or promote it? Give me a specific action plan.`
+        : `Action requested for: ${productName}. Detail: ${stockInfo}. How should I proceed?`;
+    sendMessageToAgent(msg);
+    setChatPanelOpen(true);
+  };
 
-  const topProducts = [
-    { name: 'Basmati Rice 5kg', sales: 156, revenue: '₹23,400' },
-    { name: 'Amul Milk 1L', sales: 248, revenue: '₹12,400' },
-    { name: 'Coca Cola 2L', sales: 89, revenue: '₹7,120' },
-    { name: 'Maggi Noodles', sales: 234, revenue: '₹4,680' },
-  ];
-
-  const aiRecommendations = [
-    {
-      title: 'Restock Alert',
-      description: 'Basmati Rice running low. Forecast shows 30% demand increase next week.',
-      priority: 'high',
-    },
-    {
-      title: 'Price Optimization',
-      description: 'Competitor analysis suggests 5% price reduction on soft drinks.',
-      priority: 'medium',
-    },
-    {
-      title: 'Supplier Deal',
-      description: 'Best price available from Supplier X for bulk wheat order.',
-      priority: 'low',
-    },
-  ];
+  const handleDismissAlert = async (e, alertId) => {
+    e.stopPropagation();
+    if (!window.confirm('Dismiss this alert? It will be removed from your notifications.')) return;
+    try {
+      await agentApi.dismissAlert(alertId);
+      setAlerts(prev => prev.filter(a => a.alert_id !== alertId));
+      toast.success('Alert dismissed.');
+    } catch (err) {
+      toast.error('Failed to dismiss alert.');
+    }
+  };
 
   const tasks = [
-    { id: 1, text: 'Review supplier quotes for rice', completed: false },
-    { id: 2, text: 'Update prices for 15 products', completed: false },
-    { id: 3, text: 'Check delivery status from Supplier Y', completed: true },
-    { id: 4, text: 'Approve AI-generated purchase order', completed: false },
+    { id: 1, text: 'Review proactive notifications', completed: false },
+    { id: 2, text: 'Reorder low-stock items via AI', completed: false },
+    { id: 3, text: 'Check expected deliveries today', completed: true },
+    { id: 4, text: 'Confirm Walk-in sales entries', completed: false },
   ];
 
   return (
@@ -144,6 +238,98 @@ const Dashboard = () => {
         })}
       </div>
 
+      {/* AI Recommendations & Tasks */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* AI Recommendations */}
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Recommendations</CardTitle>
+            <CardDescription>Smart insights for your business</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+              {alerts.length === 0 ? (
+                <div className="text-sm text-muted-foreground p-4 text-center border rounded-lg bg-accent/10">
+                  No active alerts. Your store is running smoothly!
+                </div>
+              ) : (
+                alerts.map((rec, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="flex gap-3 p-3 rounded-lg border hover:bg-accent transition-colors cursor-pointer"
+                    onClick={() => handleActionClick(rec)}
+                  >
+                    <div className="shrink-0">
+                      <Badge
+                        variant={
+                          rec.priority === 'urgent'
+                            ? 'destructive'
+                            : rec.priority === 'high'
+                              ? 'warning'
+                              : 'secondary'
+                        }
+                      >
+                        {rec.priority || rec.severity || 'info'}
+                      </Badge>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-sm">{rec.title || rec.type}</h4>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{rec.message}</p>
+                    </div>
+                    {rec.alert_id && (
+                      <button
+                        className="shrink-0 text-muted-foreground hover:text-red-500 transition-colors p-1 rounded"
+                        onClick={(e) => handleDismissAlert(e, rec.alert_id)}
+                        title="Dismiss"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tasks */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Today's Tasks</CardTitle>
+            <CardDescription>Things to complete</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
+                >
+                  <Checkbox defaultChecked={task.completed} />
+                  <span className={task.completed ? 'line-through text-muted-foreground' : ''}>
+                    {task.text}
+                  </span>
+                  {task.completed && <CheckCircle className="h-4 w-4 text-green-600 ml-auto" />}
+                </div>
+              ))}
+            </div>
+            <Button
+              className="w-full mt-4"
+              variant="outline"
+              onClick={() => {
+                sendMessageToAgent("Can you suggest some daily operational tasks I should add to my list?");
+                setChatPanelOpen(true);
+              }}
+            >
+              Ask AI for Tasks
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Sales Trend */}
@@ -181,78 +367,6 @@ const Dashboard = () => {
                 <Bar dataKey="sales" fill="hsl(var(--primary))" />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* AI Recommendations & Tasks */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* AI Recommendations */}
-        <Card>
-          <CardHeader>
-            <CardTitle>AI Recommendations</CardTitle>
-            <CardDescription>Smart insights for your business</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {aiRecommendations.map((rec, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="flex gap-3 p-3 rounded-lg border hover:bg-accent transition-colors cursor-pointer"
-                >
-                  <div className="shrink-0">
-                    <Badge
-                      variant={
-                        rec.priority === 'high'
-                          ? 'destructive'
-                          : rec.priority === 'medium'
-                          ? 'default'
-                          : 'secondary'
-                      }
-                    >
-                      {rec.priority}
-                    </Badge>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-sm">{rec.title}</h4>
-                    <p className="text-sm text-muted-foreground">{rec.description}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-            <Button className="w-full mt-4" variant="outline">
-              View All Insights
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Tasks */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Today's Tasks</CardTitle>
-            <CardDescription>Things to complete</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {tasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
-                >
-                  <Checkbox defaultChecked={task.completed} />
-                  <span className={task.completed ? 'line-through text-muted-foreground' : ''}>
-                    {task.text}
-                  </span>
-                  {task.completed && <CheckCircle className="h-4 w-4 text-green-600 ml-auto" />}
-                </div>
-              ))}
-            </div>
-            <Button className="w-full mt-4" variant="outline">
-              Add New Task
-            </Button>
           </CardContent>
         </Card>
       </div>

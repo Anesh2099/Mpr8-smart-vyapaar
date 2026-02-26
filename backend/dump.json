@@ -1,0 +1,30 @@
+{
+  "orders": [
+    {
+      "amount": 1000,
+      "date": "2026-02-24",
+      "items": 5,
+      "status": "Pending",
+      "store_id": "store001",
+      "supplier": "Test Supplier"
+    }
+  ],
+  "suppliers": [
+    {
+      "contact": "+91-9876543210",
+      "leadTimeDays": "1-2",
+      "location": "Mumbai",
+      "notes": "Fresh dairy daily. Minimum order: 10 units.",
+      "price_per_unit": 52.0,
+      "products": [
+        "milk",
+        "curd",
+        "butter",
+        "paneer",
+        "ghee"
+      ],
+      "reliability": 4,
+      "supplierName": "Ramesh General Traders"
+    }
+  ]
+}
