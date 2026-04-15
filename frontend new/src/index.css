@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@layer base {
+  :root {
+    /* VyapaarAI Dark - Premium AI Intelligence Theme */
+    --background: 222 47% 11%;        /* #0F172A - Slate-900 */
+    --foreground: 210 40% 98%;        /* #F8FAFC - Gray-50 */
+    --card: 217 33% 17%;              /* #1E293B - Slate-800 */
+    --card-foreground: 210 40% 98%;   /* #F8FAFC */
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 239 84% 67%;           /* #6366F1 - Indigo-500 */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 215 25% 27%;         /* #334155 - Slate-700 */
+    --secondary-foreground: 210 40% 98%;
+    --muted: 215 25% 27%;
+    --muted-foreground: 214 15% 62%;  /* #94A3B8 - Gray-400 */
+    --accent: 38 92% 50%;             /* #F59E0B - Amber-500 */
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 215 25% 27%;            /* #334155 - Slate-700 */
+    --input: 215 25% 27%;
+    --ring: 239 84% 67%;
+    --chart-1: 239 84% 67%;           /* Primary Indigo */
+    --chart-2: 38 92% 50%;            /* Accent Amber */
+    --chart-3: 173 58% 39%;           /* Teal */
+    --chart-4: 142 76% 36%;           /* Green */
+    --chart-5: 0 84.2% 60.2%;         /* Red */
+    --radius: 0.75rem
+  }
+  .dark {
+    /* Same as root for consistent dark theme */
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 215 25% 27%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 215 25% 27%;
+    --muted-foreground: 214 15% 62%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 215 25% 27%;
+    --input: 215 25% 27%;
+    --ring: 239 84% 67%;
+    --chart-1: 239 84% 67%;
+    --chart-2: 38 92% 50%;
+    --chart-3: 173 58% 39%;
+    --chart-4: 142 76% 36%;
+    --chart-5: 0 84.2% 60.2%
+  }
+}
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
