@@ -1,13 +1,13 @@
 import apiClient from './client';
 
 export const agentApi = {
-    // Master Chat
+    // Master Chat — longer timeout because it chains multiple LLM calls
     chat: async (query, sessionId = 'default_session', storeId = 'store001') => {
         const { data } = await apiClient.post('/agent/master/chat', {
             query,
             session_id: sessionId,
             store_id: storeId,
-        });
+        }, { timeout: 60000 });
         return data;
     },
 

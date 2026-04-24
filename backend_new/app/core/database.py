@@ -27,8 +27,10 @@ SYNC_DATABASE_URL: str = os.environ["SYNC_DATABASE_URL"]  # psycopg2 URL (postgr
 engine = create_async_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=10,       # Wait max 10s for a connection, then error
+    pool_recycle=300,      # Recycle connections after 5 min (avoids Supabase idle drops)
     echo=False,
     connect_args={
         "statement_cache_size": 0,

@@ -333,6 +333,46 @@ async def edit_inventory_item(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.patch("/agent/inventory/update-price/{product_id}", tags=["Inventory"])
+async def update_product_price(
+    product_id: str,
+    body: dict,
+    store_id: str = "store001",
+    db: AsyncSession = Depends(get_db),
+):
+    """Lightweight partial update — primarily for applying new prices from the Pricing page.
+    Accepts a JSON body with any subset of fields: {price, stock, reorder_level, ...}"""
+    try:
+        allowed = {}
+        if "price" in body and body["price"] is not None:
+            allowed["price"] = float(body["price"])
+        if "stock" in body:
+            allowed["stock"] = float(body["stock"])
+        if "reorder_level" in body:
+            allowed["reorder_level"] = float(body["reorder_level"])
+        if not allowed:
+            raise HTTPException(status_code=400, detail="No valid fields to update")
+
+        allowed["updated_at"] = datetime.utcnow()
+
+        result = await db.execute(
+            update(Inventory)
+            .where(Inventory.product_id == product_id, Inventory.store_id == store_id)
+            .values(**allowed)
+        )
+        await db.commit()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+
+        return {"status": "success", "product_id": product_id, "updated_fields": list(allowed.keys())}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/agent/inventory/delete/{product_id}", tags=["Inventory"])
 async def delete_inventory_item(
     product_id: str,
@@ -352,6 +392,7 @@ async def delete_inventory_item(
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # Legacy endpoints

@@ -77,9 +77,6 @@ const Inventory = () => {
         const data = await inventoryApi.getList();
         // Backend returns {"products": [...]}
         setProducts(data.products || []);
-
-        const vendorsData = await getVendors();
-        setVendors(vendorsData || []);
       } catch (error) {
         console.error("Failed to fetch inventory:", error);
         toast.error("Failed to load inventory data");
@@ -88,6 +85,17 @@ const Inventory = () => {
       }
     };
     fetchInventory();
+
+    // Fetch vendors separately so Firebase failure doesn't block inventory
+    const fetchVendors = async () => {
+      try {
+        const vendorsData = await getVendors();
+        setVendors(vendorsData || []);
+      } catch (error) {
+        console.warn("Vendors fetch failed (Firebase):", error.message);
+      }
+    };
+    fetchVendors();
   }, []);
 
   const handleInputChange = (e, field) => {
@@ -450,7 +458,7 @@ const Inventory = () => {
                   >
                     <TableCell>
                       <div>
-                        <div className="font-medium">{product.productName || product.name || 'Unknown'}</div>
+                        <div className="font-medium">{pName(product)}</div>
                         <div className="text-xs text-muted-foreground">{product.category || 'General'}</div>
                       </div>
                     </TableCell>
