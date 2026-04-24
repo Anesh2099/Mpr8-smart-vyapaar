@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Dialog,
@@ -11,101 +10,92 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import {
   Sparkles,
   TrendingUp,
   TrendingDown,
-  Plus,
-  Trash2,
   CheckCircle,
   Loader2,
   AlertTriangle,
+  RefreshCw,
+  Info,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-import { getPricing, addPricing, deletePricing } from '../../api/pricing';
 import { inventoryApi } from '@/api/inventory';
 import apiClient from '@/api/client';
 
 const PricingManagement = () => {
-  const [pricingRules, setPricingRules] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-
-  // Product name lookup: productId -> product_name
-  const [productNameMap, setProductNameMap] = useState({});
+  const [loadingProgress, setLoadingProgress] = useState({ done: 0, total: 0 });
 
   // Apply Price confirmation dialog state
   const [applyDialogOpen, setApplyDialogOpen] = useState(false);
   const [applyingRule, setApplyingRule] = useState(null);
   const [isApplying, setIsApplying] = useState(false);
 
-  const [newRule, setNewRule] = useState({ productId: '', basePrice: '', recommendedPrice: '' });
-
-  // Fetch product names from the FastAPI inventory on mount
   useEffect(() => {
-    const fetchProductNames = async () => {
-      try {
-        const data = await inventoryApi.getList();
-        const map = {};
-        for (const p of data.products || []) {
-          const pid = p.product_id || p.id;
-          const name = p.product_name || p.productName || p.name;
-          if (pid && name) map[pid] = name;
-        }
-        setProductNameMap(map);
-      } catch {
-        // Fallback: names won't resolve but page still works
-      }
-    };
-    fetchProductNames();
+    fetchDynamicPricing();
   }, []);
 
-  useEffect(() => {
-    fetchPricing();
-  }, []);
-
-  const fetchPricing = async () => {
+  const fetchDynamicPricing = async () => {
     setIsLoading(true);
+    setRecommendations([]);
     try {
-      const data = await getPricing();
-      setPricingRules(data);
+      // 1. Get all products from inventory
+      const invData = await inventoryApi.getList();
+      const products = invData.products || [];
+
+      if (products.length === 0) {
+        setIsLoading(false);
+        return;
+      }
+
+      setLoadingProgress({ done: 0, total: products.length });
+
+      // 2. Get AI pricing recommendation for each product (in parallel batches)
+      const batchSize = 2; // Process 2 at a time to stay within Groq rate limits
+      const results = [];
+
+      for (let i = 0; i < products.length; i += batchSize) {
+        // Small delay between batches to avoid Groq rate limits
+        if (i > 0) await new Promise(r => setTimeout(r, 500));
+        const batch = products.slice(i, i + batchSize);
+        const batchResults = await Promise.allSettled(
+          batch.map(async (product) => {
+            const pid = product.product_id || product.id;
+            try {
+              const rec = await inventoryApi.getPricing(pid);
+              return {
+                ...rec,
+                productId: pid,
+                productName: rec.productName || product.product_name || product.productName || pid,
+              };
+            } catch (err) {
+              return null;
+            }
+          })
+        );
+
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled' && r.value && r.value.recommendedPrice) {
+            results.push(r.value);
+          }
+        }
+
+        setLoadingProgress({ done: Math.min(i + batchSize, products.length), total: products.length });
+        // Small partial render update
+        setRecommendations([...results]);
+      }
+
+      setRecommendations(results);
     } catch (error) {
-      toast.error('Failed to load pricing data');
+      console.error('Pricing fetch error:', error);
+      toast.error('Failed to load pricing recommendations');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const getProductName = (productId) => {
-    return productNameMap[productId] || productId;
-  };
-
-  const handleAddRule = async () => {
-    if (!newRule.productId || !newRule.basePrice || !newRule.recommendedPrice) {
-      toast.error('Fill all fields'); return;
-    }
-    try {
-      await addPricing(newRule);
-      toast.success('Pricing rule added');
-      setIsDialogOpen(false);
-      setNewRule({ productId: '', basePrice: '', recommendedPrice: '' });
-      fetchPricing();
-    } catch (error) {
-      toast.error('Error adding rule');
-    }
-  };
-
-  const handleDelete = async (id) => {
-    try {
-      await deletePricing(id);
-      setPricingRules(pricingRules.filter(p => p.id !== id));
-      toast.success('Rule deleted');
-    } catch (error) {
-      toast.error('Error deleting rule');
     }
   };
 
@@ -126,9 +116,19 @@ const PricingManagement = () => {
       });
 
       toast.success(
-        `Price for "${getProductName(applyingRule.productId)}" updated to ₹${applyingRule.recommendedPrice}`,
+        `Price for "${applyingRule.productName}" updated to ₹${applyingRule.recommendedPrice}`,
         { duration: 4000 }
       );
+
+      // Update the recommendation in the list to reflect the change
+      setRecommendations(prev =>
+        prev.map(r =>
+          r.productId === applyingRule.productId
+            ? { ...r, currentPrice: applyingRule.recommendedPrice, priceChange: '+0.0%' }
+            : r
+        )
+      );
+
       setApplyDialogOpen(false);
       setApplyingRule(null);
     } catch (error) {
@@ -139,102 +139,169 @@ const PricingManagement = () => {
     }
   };
 
+  // Stats summary
+  const priceIncreases = recommendations.filter(r => r.recommendedPrice > r.currentPrice).length;
+  const priceDecreases = recommendations.filter(r => r.recommendedPrice < r.currentPrice).length;
+  const avgConfidence = recommendations.length
+    ? (recommendations.reduce((s, r) => s + (r.confidence || 0), 0) / recommendations.length * 100).toFixed(0)
+    : 0;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2"><Sparkles className="h-6 w-6 text-indigo-500" /> AI Pricing Intelligence</h1>
-          <p className="text-muted-foreground">Dynamic pricing and margin optimization</p>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Sparkles className="h-6 w-6 text-indigo-500" /> AI Pricing Intelligence
+          </h1>
+          <p className="text-muted-foreground">
+            Dynamic pricing powered by demand, inventory, weather & seasonal signals
+          </p>
         </div>
-        
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-2" /> Custom Rule</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Pricing Rule</DialogTitle>
-              <DialogDescription>Set a custom pricing rule for a product</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Product ID</Label>
-                <Input
-                  value={newRule.productId}
-                  onChange={(e) => setNewRule({...newRule, productId: e.target.value})}
-                  placeholder="e.g. prod_003"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Base Price (₹)</Label>
-                  <Input
-                    type="number"
-                    value={newRule.basePrice}
-                    onChange={(e) => setNewRule({...newRule, basePrice: e.target.value})}
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>AI Recommended (₹)</Label>
-                  <Input
-                    type="number"
-                    value={newRule.recommendedPrice}
-                    onChange={(e) => setNewRule({...newRule, recommendedPrice: e.target.value})}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-              <Button className="w-full" onClick={handleAddRule}>Save Rule</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+
+        <Button onClick={fetchDynamicPricing} disabled={isLoading} variant="outline" className="gap-2">
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          {isLoading ? 'Analyzing...' : 'Refresh Prices'}
+        </Button>
       </div>
 
+      {/* Stats Row */}
+      {recommendations.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <TrendingUp className="h-5 w-5 text-green-500" />
+                <div>
+                  <div className="text-2xl font-bold">{priceIncreases}</div>
+                  <div className="text-sm text-muted-foreground">Price Increases</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <TrendingDown className="h-5 w-5 text-red-500" />
+                <div>
+                  <div className="text-2xl font-bold">{priceDecreases}</div>
+                  <div className="text-sm text-muted-foreground">Price Decreases</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-indigo-500" />
+                <div>
+                  <div className="text-2xl font-bold">{avgConfidence}%</div>
+                  <div className="text-sm text-muted-foreground">Avg Confidence</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <Card>
-        <CardHeader><CardTitle>Active Pricing Models</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>AI Pricing Recommendations</CardTitle>
+          <CardDescription>
+            {isLoading
+              ? `Analyzing products... (${loadingProgress.done}/${loadingProgress.total})`
+              : `${recommendations.length} products analyzed`
+            }
+          </CardDescription>
+        </CardHeader>
         <CardContent>
-          {isLoading ? <p className="text-muted-foreground">Loading AI recommendations...</p> : (
+          {isLoading && recommendations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+              <p>Running AI pricing analysis on your inventory...</p>
+              <p className="text-xs">Evaluating demand, stock levels, weather, and seasonal trends</p>
+            </div>
+          ) : recommendations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+              <Info className="h-8 w-8" />
+              <p>No products found in inventory. Add products first.</p>
+            </div>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Product</TableHead>
-                  <TableHead>Base Price</TableHead>
+                  <TableHead>Current Price</TableHead>
                   <TableHead>Recommended</TableHead>
-                  <TableHead>Margin Impact</TableHead>
+                  <TableHead>Change</TableHead>
+                  <TableHead>Key Factors</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pricingRules.map((rule, i) => {
-                  const diff = rule.recommendedPrice - rule.basePrice;
+                {recommendations.map((rec, i) => {
+                  const diff = rec.recommendedPrice - rec.currentPrice;
                   const isPositive = diff >= 0;
-                  const name = getProductName(rule.productId);
+                  const changeStr = rec.priceChange || `${diff >= 0 ? '+' : ''}${((diff / rec.currentPrice) * 100).toFixed(1)}%`;
+                  const isNoChange = Math.abs(diff) < 0.01;
                   return (
-                    <motion.tr key={rule.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.1 }}>
+                    <motion.tr
+                      key={rec.productId}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: i * 0.05 }}
+                    >
                       <TableCell>
                         <div>
-                          <div className="font-medium">{name}</div>
-                          {name !== rule.productId && (
-                            <div className="text-xs text-muted-foreground font-mono">{rule.productId}</div>
+                          <div className="font-medium">{rec.productName}</div>
+                          <div className="text-xs text-muted-foreground font-mono">{rec.productId}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono">₹{rec.currentPrice}</TableCell>
+                      <TableCell className={`font-bold font-mono ${isNoChange ? '' : isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                        ₹{rec.recommendedPrice}
+                      </TableCell>
+                      <TableCell>
+                        {isNoChange ? (
+                          <Badge variant="outline" className="gap-1 text-muted-foreground">
+                            No change
+                          </Badge>
+                        ) : (
+                          <Badge variant={isPositive ? 'default' : 'destructive'} className="flex w-fit gap-1">
+                            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                            {changeStr}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[200px]">
+                          {rec.factors && rec.factors.length > 0 ? (
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {rec.factors.slice(0, 2).join('; ')}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground italic">Price is optimal</p>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>₹{rule.basePrice}</TableCell>
-                      <TableCell className="font-bold text-indigo-400">₹{rule.recommendedPrice}</TableCell>
                       <TableCell>
-                        <Badge variant={isPositive ? 'default' : 'destructive'} className="flex w-fit gap-1">
-                          {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                          {isPositive ? '+' : ''}₹{diff.toFixed(2)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="flex gap-2">
-                        <Button size="sm" variant="secondary" onClick={() => handleApplyClick(rule)}>
-                          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
-                          Apply Price
-                        </Button>
-                        <Button size="icon" variant="ghost" className="text-red-500" onClick={() => handleDelete(rule.id)}><Trash2 className="h-4 w-4" /></Button>
+                        {!isNoChange ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleApplyClick(rec)}
+                          >
+                            <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                            Apply
+                          </Button>
+                        ) : (
+                          <Badge variant="outline" className="text-green-600 gap-1">
+                            <CheckCircle className="h-3 w-3" />
+                            Optimal
+                          </Badge>
+                        )}
                       </TableCell>
                     </motion.tr>
-                  )
+                  );
                 })}
               </TableBody>
             </Table>
@@ -259,15 +326,13 @@ const PricingManagement = () => {
               <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
                 <div>
                   <div className="text-xs text-muted-foreground">Product</div>
-                  <div className="font-semibold text-lg">{getProductName(applyingRule.productId)}</div>
-                  {getProductName(applyingRule.productId) !== applyingRule.productId && (
-                    <div className="text-xs text-muted-foreground font-mono">{applyingRule.productId}</div>
-                  )}
+                  <div className="font-semibold text-lg">{applyingRule.productName}</div>
+                  <div className="text-xs text-muted-foreground font-mono">{applyingRule.productId}</div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div>
                     <div className="text-xs text-muted-foreground">Current Price</div>
-                    <div className="text-lg font-mono line-through text-red-400">₹{applyingRule.basePrice}</div>
+                    <div className="text-lg font-mono line-through text-red-400">₹{applyingRule.currentPrice}</div>
                   </div>
                   <div className="text-muted-foreground text-xl">→</div>
                   <div>
@@ -275,19 +340,19 @@ const PricingManagement = () => {
                     <div className="text-lg font-mono font-bold text-green-400">₹{applyingRule.recommendedPrice}</div>
                   </div>
                 </div>
-                <div>
-                  <Badge
-                    variant={applyingRule.recommendedPrice >= applyingRule.basePrice ? 'default' : 'destructive'}
-                    className="gap-1"
-                  >
-                    {applyingRule.recommendedPrice >= applyingRule.basePrice
-                      ? <TrendingUp className="h-3 w-3" />
-                      : <TrendingDown className="h-3 w-3" />
-                    }
-                    {applyingRule.recommendedPrice >= applyingRule.basePrice ? '+' : ''}
-                    ₹{(applyingRule.recommendedPrice - applyingRule.basePrice).toFixed(2)} per unit
-                  </Badge>
-                </div>
+                {applyingRule.factors && applyingRule.factors.length > 0 && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">AI Reasoning</div>
+                    <ul className="text-xs space-y-1">
+                      {applyingRule.factors.map((f, i) => (
+                        <li key={i} className="flex gap-1.5 items-start">
+                          <Sparkles className="h-3 w-3 mt-0.5 text-indigo-400 shrink-0" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3">

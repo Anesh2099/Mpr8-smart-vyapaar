@@ -1,50 +1,39 @@
 """
-app/services/conversation_store.py — Firestore-backed chat history per session.
+app/services/conversation_store.py — In-memory chat history per session.
 
-Each session stores a list of {role, content, timestamp} messages in:
-  Firestore: chat_history/{session_id}/messages/{auto_id}
+Each session stores a list of {role, content, timestamp} messages.
+Uses a simple in-memory dict with a max history size per session.
+This avoids dependency on Firebase Firestore for chat context.
 """
 
 from datetime import datetime, timezone
-from app.core.config import db
+from collections import defaultdict
+
+# In-memory store: session_id -> list of {role, content, timestamp}
+_store: dict[str, list[dict]] = defaultdict(list)
+_MAX_HISTORY = 30  # Keep last 30 messages per session
 
 
 def get_history(session_id: str, limit: int = 20) -> list[dict]:
     """Return the last `limit` messages for a session, oldest first."""
-    try:
-        docs = (
-            db.collection("chat_history")
-            .document(session_id)
-            .collection("messages")
-            .order_by("timestamp")
-            .limit_to_last(limit)
-            .get()
-        )
-        return [d.to_dict() for d in docs]
-    except Exception:
-        return []
+    return _store[session_id][-limit:]
 
 
 def append_message(session_id: str, role: str, content: str) -> None:
     """Append a message to a session's chat history."""
-    try:
-        db.collection("chat_history").document(session_id).collection("messages").add({
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now(timezone.utc),
-        })
-    except Exception:
-        pass  # Never crash an agent because of logging failure
+    _store[session_id].append({
+        "role": role,
+        "content": content,
+        "timestamp": datetime.now(timezone.utc),
+    })
+    # Trim to prevent memory bloat
+    if len(_store[session_id]) > _MAX_HISTORY:
+        _store[session_id] = _store[session_id][-_MAX_HISTORY:]
 
 
 def clear_history(session_id: str) -> None:
     """Delete all messages for a session."""
-    try:
-        ref = db.collection("chat_history").document(session_id).collection("messages")
-        for doc in ref.stream():
-            doc.reference.delete()
-    except Exception:
-        pass
+    _store[session_id] = []
 
 
 def format_history_for_llm(history: list[dict]) -> list[dict]:

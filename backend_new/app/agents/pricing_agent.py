@@ -124,7 +124,7 @@ async def pricing_agent(db: AsyncSession, product_id: str, store_id: str = "stor
             
         # Factor 7: External Market Signals (Festivals/Events)
         try:
-            festivals = run_festival_advisor()
+            festivals = await run_festival_advisor()
             if festivals:
                 festival_name = festivals[0].get("festival", "Upcoming Festival")
                 multiplier += 0.05
@@ -141,19 +141,24 @@ async def pricing_agent(db: AsyncSession, product_id: str, store_id: str = "stor
     promotion = _generate_promotion(product_name, current_stock, predicted_demand, recommended_price)
 
     reason_str = "; ".join(reasons) if reasons else "No significant pricing factors detected"
-    explanation = await llm_chat(
-        messages=[{
-            "role": "user",
-            "content": (
-                f"Product: {product_name}\n"
-                f"Current price: Rs.{base_price}\nRecommended price: Rs.{recommended_price}\n"
-                f"Reasons: {reason_str}\n\n"
-                f"Write a 1-2 sentence explanation for a Kirana store owner on why they should "
-                f"change the price. Be simple, clear, and actionable."
+
+    # Build explanation from the already-computed factors (no extra LLM call needed)
+    if reasons:
+        direction = "increase" if recommended_price > base_price else "decrease" if recommended_price < base_price else "keep"
+        if direction == "increase":
+            explanation = (
+                f"I recommend increasing the price of {product_name} from Rs.{base_price} to "
+                f"Rs.{recommended_price} based on: {reason_str}."
             )
-        }],
-        temperature=0.3,
-    )
+        elif direction == "decrease":
+            explanation = (
+                f"Consider lowering {product_name} from Rs.{base_price} to Rs.{recommended_price}. "
+                f"Reason: {reason_str}."
+            )
+        else:
+            explanation = f"Current price of Rs.{base_price} for {product_name} is optimal. {reason_str}."
+    else:
+        explanation = f"Current price of Rs.{base_price} for {product_name} looks good — no adjustment needed right now."
 
     data_quality = sum([bool(base_price), bool(predicted_demand), bool(competitor_price), bool(wholesale_cost)])
     confidence = round(data_quality / 4, 2)

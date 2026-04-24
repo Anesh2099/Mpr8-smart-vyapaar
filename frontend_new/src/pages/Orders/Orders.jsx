@@ -117,7 +117,10 @@ const Orders = () => {
   }, []);
 
   const handleNegotiate = (supplier) => {
-    const query = `I want to negotiate better prices with my supplier: ${supplier.name}. They supply ${supplier.categories?.join(', ')}. Can you draft a negotiation strategy?`;
+    const name = supplier.supplier_name || supplier.supplierName || supplier.name || 'Unknown';
+    const productsList = supplier.products || supplier.categories || [];
+    const productsStr = Array.isArray(productsList) ? productsList.join(', ') : (productsList || 'various products');
+    const query = `I want to negotiate better prices with my supplier: ${name}. They supply ${productsStr}. Can you draft a negotiation strategy?`;
     sendMessageToAgent(query);
     setChatPanelOpen(true);
     toast.success('Negotiation request sent to AI Agent!');

@@ -41,7 +41,7 @@ async def supplier_agent(
     """
     # Parse NL query if given
     if query and not product_name:
-        parsed = _parse_supplier_command(query)
+        parsed = await _parse_supplier_command(query)
         product_name = parsed.get("product_name") or product_name
         quantity      = parsed.get("quantity") or quantity
         budget        = parsed.get("budget") or budget
