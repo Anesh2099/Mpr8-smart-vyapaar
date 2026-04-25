@@ -1,19 +1,50 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { MapPin, Star, Building2, Plus, Trash2, Phone, Package } from 'lucide-react';
+import { MapPin, Star, Building2, Plus, Trash2, Phone, Package, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { getVendors, addVendor, deleteVendor } from '../../api/vendors';
+
+// ─── React Confirmation Modal (via Portal, not window.confirm) ────────────────
+function ConfirmModal({ open, title, message, onConfirm, onCancel }) {
+  if (!open) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 z-10">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-foreground">{title}</h3>
+            <p className="text-sm text-muted-foreground mt-1">{message}</p>
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button variant="destructive" onClick={onConfirm}>Yes, Delete</Button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const VendorDirectory = () => {
   const [vendors, setVendors] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null, name: '' });
 
   const [newVendor, setNewVendor] = useState({ name: '', location: '', reliability: '', contact: '', products: '', notes: '', leadTimeDays: '', price_per_unit: '' });
 
@@ -49,7 +80,15 @@ const VendorDirectory = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  // Step 1: Show confirm modal
+  const requestDelete = (id, name) => {
+    setDeleteConfirm({ open: true, id, name });
+  };
+
+  // Step 2: User confirmed — do the delete
+  const confirmDelete = async () => {
+    const { id } = deleteConfirm;
+    setDeleteConfirm({ open: false, id: null, name: '' });
     try {
       await deleteVendor(id);
       setVendors(vendors.filter(v => v.id !== id));
@@ -59,8 +98,21 @@ const VendorDirectory = () => {
     }
   };
 
+  const cancelDelete = () => {
+    setDeleteConfirm({ open: false, id: null, name: '' });
+  };
+
   return (
     <div className="p-6 space-y-6">
+      {/* React Confirmation Modal */}
+      <ConfirmModal
+        open={deleteConfirm.open}
+        title={`Delete "${deleteConfirm.name}"?`}
+        message="This will permanently remove this vendor from your directory. This action cannot be undone."
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+      />
+
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Vendor Directory</h1>
@@ -98,7 +150,12 @@ const VendorDirectory = () => {
                 <CardHeader className="pb-2">
                   <div className="flex justify-between items-start">
                     <CardTitle className="text-lg flex items-center gap-2"><Building2 className="h-5 w-5 text-blue-500"/> {vendor.name}</CardTitle>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 -mt-2 -mr-2" onClick={() => handleDelete(vendor.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-red-500 -mt-2 -mr-2"
+                      onClick={() => requestDelete(vendor.id, vendor.name)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

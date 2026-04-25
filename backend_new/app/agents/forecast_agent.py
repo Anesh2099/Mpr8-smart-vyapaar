@@ -269,11 +269,11 @@ async def generate_demand_forecast(db: AsyncSession, store_id: str = "store001")
 # MODULE 2: TREND & SPIKE DETECTION
 # ============================
 
-def google_trends() -> list:
+async def google_trends(client: httpx.AsyncClient) -> list:
     try:
         url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=IN"
         headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=5)
+        res = await client.get(url, headers=headers, timeout=5)
         root = ET.fromstring(res.content)
         return [
             item.find('title').text
@@ -285,12 +285,12 @@ def google_trends() -> list:
         return []
 
 
-def amazon_best_sellers() -> list:
+async def amazon_best_sellers(client: httpx.AsyncClient) -> list:
     items = []
     headers = {"User-Agent": "Mozilla/5.0"}
     url = "https://www.amazon.in/gp/bestsellers/grocery"
     try:
-        res = requests.get(url, headers=headers, timeout=5)
+        res = await client.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
         for item in soup.select("._cDEzb_p13n-sc-css-line-clamp-3_g3dy1"):
             items.append(item.text.strip())
@@ -299,14 +299,14 @@ def amazon_best_sellers() -> list:
     return items[:20]
 
 
-def reddit_trends() -> list:
+async def reddit_trends(client: httpx.AsyncClient) -> list:
     topics = []
     subreddits = ["india", "indiaspeaks", "food", "snacks", "gaming", "technology"]
     headers = {"User-Agent": "Mozilla/5.0"}
     for sub in subreddits:
         try:
             url = f"https://www.reddit.com/r/{sub}/hot.json?limit=15"
-            res = requests.get(url, headers=headers, timeout=5)
+            res = await client.get(url, headers=headers, timeout=5)
             data = res.json()
             for post in data.get("data", {}).get("children", []):
                 topics.append(post["data"]["title"])
@@ -319,39 +319,43 @@ def is_retail_relevant(text: str) -> bool:
     return any(word in text.lower() for word in retail_keywords)
 
 
-def is_commercial_product(keyword: str) -> bool:
+async def is_commercial_product(client: httpx.AsyncClient, keyword: str) -> bool:
     query = keyword + " buy"
     url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        res = requests.get(url, headers=headers, timeout=5)
+        res = await client.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
         return "\u20b9" in soup.text or "Rs." in soup.text
     except Exception:
         return False
 
 
-def detect_new_trends() -> list:
-    daily_google = google_trends()
-    daily_amazon = amazon_best_sellers()
-    daily_reddit = reddit_trends()
-    candidates = list(set(daily_google + daily_amazon + daily_reddit))
-    print(f"TOTAL TREND CANDIDATES: {len(candidates)}")
+async def detect_new_trends() -> list:
+    async with httpx.AsyncClient() as client:
+        daily_google, daily_amazon, daily_reddit = await asyncio.gather(
+            google_trends(client),
+            amazon_best_sellers(client),
+            reddit_trends(client)
+        )
+        
+        candidates = list(set(daily_google + daily_amazon + daily_reddit))
+        print(f"TOTAL TREND CANDIDATES: {len(candidates)}")
 
-    valid = []
-    for topic in candidates:
-        if not is_retail_relevant(topic) or not is_commercial_product(topic):
-            continue
-        score = 0
-        if topic in daily_google:
-            score += 50
-        if topic in daily_amazon:
-            score += 30
-        reddit_count = sum(topic.lower() in t.lower() for t in daily_reddit)
-        score += reddit_count * 10
-        if score >= TREND_SCORE_THRESHOLD:
-            valid.append((topic, score))
-    return valid
+        valid = []
+        for topic in candidates:
+            if not is_retail_relevant(topic) or not await is_commercial_product(client, topic):
+                continue
+            score = 0
+            if topic in daily_google:
+                score += 50
+            if topic in daily_amazon:
+                score += 30
+            reddit_count = sum(topic.lower() in t.lower() for t in daily_reddit)
+            score += reddit_count * 10
+            if score >= TREND_SCORE_THRESHOLD:
+                valid.append((topic, score))
+        return valid
 
 
 def detect_spike(product: dict) -> bool:
@@ -372,7 +376,7 @@ async def run_trend_engine(db: AsyncSession, store_id: str = "store001") -> None
     else:
         print("No inventory found to check for spikes.")
 
-    trends = detect_new_trends()
+    trends = await detect_new_trends()
     for topic, score in trends:
         print(f"  Valid Trend: {topic} (Score: {score})")
     print("Demand Intelligence cycle complete.")

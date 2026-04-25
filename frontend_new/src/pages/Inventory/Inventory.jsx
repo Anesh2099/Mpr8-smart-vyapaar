@@ -159,7 +159,7 @@ const Inventory = () => {
     const query = `Check the inventory status for ${pName(product)} and tell me if I need to reorder. It currently has ${product.stock} units.`;
     sendMessageToAgent(query);
     setChatPanelOpen(true);
-    toast.success('Query sent to AI Assistant!');
+    toast.success('Query sent to Agent Saarthi!');
   };
 
   const handleGetPricing = async (product) => {
@@ -298,7 +298,16 @@ const Inventory = () => {
               </div>
               <div className="space-y-2">
                 <Label>SKU</Label>
-                <Input value={formData.sku} onChange={e => handleInputChange(e, 'sku')} placeholder="Enter SKU" />
+                <Input 
+                  value={formData.sku} 
+                  onChange={e => {
+                    // Only allow alphanumeric and dashes
+                    const val = e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase();
+                    handleInputChange({ target: { value: val } }, 'sku');
+                  }} 
+                  placeholder="e.g. MILK-500ML" 
+                />
+                <p className="text-[10px] text-muted-foreground">Only letters, numbers, and dashes allowed.</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -308,6 +317,7 @@ const Inventory = () => {
                 <div className="space-y-2">
                   <Label>Reorder Level</Label>
                   <Input type="number" value={formData.reorderLevel} onChange={e => handleInputChange(e, 'reorderLevel')} placeholder="0" />
+                  <p className="text-[10px] text-muted-foreground">AI alerts you when stock hits this level.</p>
                 </div>
               </div>
               <div className="space-y-2">

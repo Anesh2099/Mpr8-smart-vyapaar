@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ import {
     IndianRupee,
     MessageSquare,
     Calendar,
+    AlertTriangle,
 } from 'lucide-react';
 import useChatStore from '@/store/useChatStore';
 import toast from 'react-hot-toast';
@@ -62,6 +64,17 @@ const Sales = () => {
 
     // Date filter
     const [dateFilter, setDateFilter] = useState('All');
+
+    // Confirm modal
+    const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', details: null, onConfirm: null });
+    const showConfirm = ({ title, message, details }) =>
+        new Promise((resolve) => {
+            setConfirmState({
+                open: true, title, message, details,
+                onConfirm: () => { setConfirmState(s => ({ ...s, open: false })); resolve(true); },
+            });
+        });
+    const handleConfirmCancel = () => setConfirmState(s => ({ ...s, open: false }));
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -133,6 +146,19 @@ const Sales = () => {
             }
 
             const productName = isOtherProduct ? otherProductName.trim() : newSaleProduct;
+
+            const yes = await showConfirm({
+                title: 'Record this Sale?',
+                message: 'This will save the sale transaction to your records.',
+                details: {
+                    customer: newSaleCustomer || 'Walk-in Customer',
+                    product: productName,
+                    total: `₹${newSaleTotal}`,
+                    payment: newSaleMethod || 'Cash',
+                },
+            });
+            if (!yes) return;
+
             const itemsArray = [{
                 name: productName,
                 quantity: 1,
@@ -161,7 +187,7 @@ const Sales = () => {
             setNewSaleTotal('');
             setNewSaleMethod('Cash');
 
-            fetchData(); // Refresh the list
+            fetchData();
         } catch (err) {
             console.error("Error adding sale", err);
             toast.error("Failed to add sale. Check console.");
@@ -169,7 +195,11 @@ const Sales = () => {
     };
 
     const handleDeleteSale = async (id) => {
-        if (!window.confirm('Delete this sale record? This cannot be undone.')) return;
+        const yes = await showConfirm({
+            title: 'Delete this Sale?',
+            message: 'This sale record will be permanently deleted.',
+        });
+        if (!yes) return;
         try {
             await salesApi.deleteSale(id);
             toast.success("Sale deleted.");
@@ -238,6 +268,38 @@ const Sales = () => {
 
     return (
         <>
+            {/* React Confirmation Modal via Portal */}
+            {confirmState.open && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleConfirmCancel} />
+                    <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 z-10" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-start gap-3 mb-4">
+                            <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-base">{confirmState.title}</h3>
+                                <p className="text-sm text-muted-foreground mt-1">{confirmState.message}</p>
+                            </div>
+                        </div>
+                        {confirmState.details && (
+                            <div className="bg-muted/50 rounded-lg p-3 mb-4 text-xs text-muted-foreground space-y-1">
+                                {Object.entries(confirmState.details).map(([k, v]) => v ? (
+                                    <div key={k} className="flex justify-between">
+                                        <span className="font-medium capitalize">{k}</span>
+                                        <span>{String(v)}</span>
+                                    </div>
+                                ) : null)}
+                            </div>
+                        )}
+                        <div className="flex gap-2 justify-end">
+                            <Button variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirmCancel(); }}>Cancel</Button>
+                            <Button variant="destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); confirmState.onConfirm(); }}>Confirm</Button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
             <div className="p-6 space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-center">
@@ -284,11 +346,14 @@ const Sales = () => {
                                         }}
                                     >
                                         <option value="">Select a product from inventory...</option>
-                                        {inventoryItems.map(item => (
-                                            <option key={item.id} value={item.productName || item.name}>
-                                                {item.productName || item.name}
-                                            </option>
-                                        ))}
+                                        {inventoryItems.map(item => {
+                                            const name = item.product_name || item.productName || item.name;
+                                            return (
+                                                <option key={item.id} value={name}>
+                                                    {name}
+                                                </option>
+                                            );
+                                        })}
                                         <option value="other">Other (Not in Inventory)</option>
                                     </select>
                                     {isOtherProduct && (

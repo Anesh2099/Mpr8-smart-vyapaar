@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,8 +13,32 @@ import {
   CheckCircle,
   ArrowRight,
 } from 'lucide-react';
+import apiClient from '@/api/client';
 
 const Landing = () => {
+  const [heroStats, setHeroStats] = useState({ sales: '...', lowStock: '...', alerts: '...' });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [invRes, alertRes] = await Promise.all([
+          apiClient.get('/agent/inventory/list?store_id=store001'),
+          apiClient.get('/agent/alerts?store_id=store001&limit=50'),
+        ]);
+        const products = invRes.data.products || [];
+        const lowCount = products.filter(p => Number(p.stock) < Number(p.reorder_level)).length;
+        const alertCount = (alertRes.data.alerts || []).length;
+        setHeroStats({
+          sales: `${products.length} Products`,
+          lowStock: lowCount,
+          alerts: alertCount,
+        });
+      } catch {
+        setHeroStats({ sales: '30+', lowStock: '8', alerts: '15' });
+      }
+    };
+    fetchStats();
+  }, []);
   const features = [
     {
       icon: TrendingUp,
@@ -113,11 +138,11 @@ const Landing = () => {
                 <div className="grid grid-cols-3 gap-4">
                   <Card>
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm">Today's Sales</CardTitle>
+                      <CardTitle className="text-sm">Active Catalog</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-bold">₹45,231</p>
-                      <p className="text-xs text-green-600">+12% from yesterday</p>
+                      <p className="text-2xl font-bold">{heroStats.sales}</p>
+                      <p className="text-xs text-green-600">Tracked in real-time</p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -125,17 +150,17 @@ const Landing = () => {
                       <CardTitle className="text-sm">Low Stock Items</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-bold">8</p>
+                      <p className="text-2xl font-bold">{heroStats.lowStock}</p>
                       <p className="text-xs text-orange-600">Reorder recommended</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm">AI Insights</CardTitle>
+                      <CardTitle className="text-sm">AI Alerts</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-bold">23</p>
-                      <p className="text-xs text-blue-600">New recommendations</p>
+                      <p className="text-2xl font-bold">{heroStats.alerts}</p>
+                      <p className="text-xs text-blue-600">Active recommendations</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -280,7 +305,7 @@ const Landing = () => {
       {/* Footer */}
       <footer className="py-8 border-t border-border">
         <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <p>© 2024 Smart Vyapar - AI Business OS for Local Retailers. All rights reserved.</p>
+          <p>© 2025 Smart Vyapar - AI Business OS for Local Retailers. All rights reserved.</p>
         </div>
       </footer>
     </div>

@@ -258,7 +258,7 @@ const Agents = () => {
         <Card>
           <CardHeader>
             <CardTitle>Agent Status</CardTitle>
-            <CardDescription>Click "Run" to trigger an agent via AI Assistant</CardDescription>
+            <CardDescription>Click "Run" to trigger an agent via Agent Saarthi</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">

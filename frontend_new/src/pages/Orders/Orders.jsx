@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import {
   Trash2,
   Search,
   Plus,
+  AlertTriangle,
 } from 'lucide-react';
 import useChatStore from '@/store/useChatStore';
 import toast from 'react-hot-toast';
@@ -47,6 +49,19 @@ const Orders = () => {
   const [suppliers, setSuppliers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
+
+  // Confirm modal state
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', details: null, onConfirm: null });
+
+  const showConfirm = ({ title, message, details }) =>
+    new Promise((resolve) => {
+      setConfirmState({
+        open: true, title, message, details,
+        onConfirm: () => { setConfirmState(s => ({ ...s, open: false })); resolve(true); },
+      });
+    });
+
+  const handleConfirmCancel = () => setConfirmState(s => ({ ...s, open: false }));
 
   // New order form states
   const [isOrderOpen, setIsOrderOpen] = useState(false);
@@ -141,14 +156,34 @@ const Orders = () => {
   const handleAddOrder = async () => {
     try {
       if (!newOrderSupplier || !newOrderTotal) return toast.error("Supplier and Total are required");
+      
+      const yes = await showConfirm({
+        title: 'Create Purchase Order?',
+        message: 'This will create a new purchase order in the system.',
+        details: {
+          supplier: newOrderSupplier,
+          items: newOrderItems || 1,
+          total: `₹${newOrderTotal}`,
+        },
+      });
+      if (!yes) return;
+
+      const qty = parseInt(newOrderItems) || 1;
+      const total = parseFloat(newOrderTotal);
+      
       const orderData = {
         supplier: newOrderSupplier,
-        items: parseInt(newOrderItems) || 1,
-        amount: parseFloat(newOrderTotal),
+        items: [{
+          product_name: "General Order",
+          quantity: qty,
+          unit_price: total / qty
+        }],
+        total_amount: total,
         status: "Pending",
         date: new Date().toISOString().split('T')[0],
         store_id: "store001"
       };
+      
       await supplierApi.addPurchaseOrder(orderData);
       toast.success("Purchase order created!");
       setIsOrderOpen(false);
@@ -158,7 +193,11 @@ const Orders = () => {
   };
 
   const handleDeleteOrder = async (id) => {
-    if (!window.confirm('Delete this purchase order? This cannot be undone.')) return;
+    const yes = await showConfirm({
+      title: 'Delete Purchase Order?',
+      message: 'This will permanently remove this order. This cannot be undone.',
+    });
+    if (!yes) return;
     try {
       await supplierApi.deletePurchaseOrder(id);
       toast.success("Order deleted");
@@ -170,7 +209,7 @@ const Orders = () => {
     const query = `Analyze the status and impact of this purchase order from ${order.supplier} for ₹${order.amount || order.total}.`;
     sendMessageToAgent(query);
     setChatPanelOpen(true);
-    toast.success('Query sent to AI Assistant!');
+    toast.success('Query sent to Agent Saarthi!');
   };
 
   // Dynamic stats
@@ -209,6 +248,38 @@ const Orders = () => {
 
   return (
     <div className="p-6 space-y-6">
+      {/* React Confirmation Modal via Portal */}
+      {confirmState.open && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleConfirmCancel} />
+          <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 z-10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base">{confirmState.title}</h3>
+                <p className="text-sm text-muted-foreground mt-1">{confirmState.message}</p>
+              </div>
+            </div>
+            {confirmState.details && (
+              <div className="bg-muted/50 rounded-lg p-3 mb-4 text-xs text-muted-foreground space-y-1">
+                {Object.entries(confirmState.details).map(([k, v]) => v ? (
+                  <div key={k} className="flex justify-between">
+                    <span className="font-medium capitalize">{k}</span>
+                    <span>{String(v)}</span>
+                  </div>
+                ) : null)}
+              </div>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirmCancel(); }}>Cancel</Button>
+              <Button variant="destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); confirmState.onConfirm(); }}>Confirm</Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold">Orders & Suppliers</h1>

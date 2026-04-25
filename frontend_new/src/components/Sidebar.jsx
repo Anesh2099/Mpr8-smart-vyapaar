@@ -76,7 +76,7 @@ const Sidebar = () => {
       {/* Footer */}
       <div className="p-4 border-t border-border">
         <div className="text-xs text-muted-foreground text-center">
-          © 2024 Smart Vyapar
+          © 2025 Smart Vyapar
         </div>
       </div>
     </aside>

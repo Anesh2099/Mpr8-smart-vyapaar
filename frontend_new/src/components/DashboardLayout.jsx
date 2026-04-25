@@ -47,7 +47,7 @@ const DashboardLayout = () => {
                 </div>
               </Button>
               <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-card px-3 py-1.5 rounded-lg shadow-lg border border-border opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                <p className="text-sm font-medium">Ask AI Assistant</p>
+                <p className="text-sm font-medium">Ask Agent Saarthi</p>
               </div>
             </motion.div>
           )}

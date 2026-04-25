@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -40,6 +41,7 @@ const Dashboard = () => {
     fetchAlerts();
   }, [shopInfo.id]);
 
+  const [isLoading, setIsLoading] = useState(true);
   const [dashboardStats, setDashboardStats] = useState({
     todaysSales: 0,
     totalOrders: 0,
@@ -115,8 +117,11 @@ const Dashboard = () => {
           .slice(0, 4);
 
         setTopProducts(sortedProducts);
-
-      } catch (err) { console.error("Failed to load dashboard data", err); }
+      } catch (err) { 
+        console.error("Failed to load dashboard data", err); 
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     fetchDashboardData();
@@ -179,12 +184,44 @@ const Dashboard = () => {
     }
   };
 
-  const tasks = [
-    { id: 1, text: 'Review proactive notifications', completed: false },
-    { id: 2, text: 'Reorder low-stock items via AI', completed: false },
-    { id: 3, text: 'Check expected deliveries today', completed: true },
-    { id: 4, text: 'Confirm Walk-in sales entries', completed: false },
-  ];
+  const [tasks, setTasks] = useState(() => {
+    const saved = localStorage.getItem('dashboardTasks');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: 1, text: 'Review proactive notifications', completed: false },
+      { id: 2, text: 'Reorder low-stock items via AI', completed: false },
+      { id: 3, text: 'Check expected deliveries today', completed: true },
+      { id: 4, text: 'Confirm Walk-in sales entries', completed: false },
+    ];
+  });
+  const [newTaskText, setNewTaskText] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem('dashboardTasks', JSON.stringify(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    const handleTaskAdded = (e) => {
+      const newTask = { id: Date.now(), text: e.detail, completed: false };
+      setTasks(prev => [...prev, newTask]);
+    };
+    window.addEventListener('taskAdded', handleTaskAdded);
+    return () => window.removeEventListener('taskAdded', handleTaskAdded);
+  }, []);
+
+  const addTask = () => {
+    if (!newTaskText.trim()) return;
+    setTasks(prev => [...prev, { id: Date.now(), text: newTaskText, completed: false }]);
+    setNewTaskText('');
+  };
+
+  const toggleTask = (id) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
+
+  const deleteTask = (id) => {
+    setTasks(prev => prev.filter(t => t.id !== id));
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -219,7 +256,11 @@ const Dashboard = () => {
                   <Icon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{stat.value}</div>
+                  {isLoading ? (
+                    <div className="h-8 w-24 bg-muted animate-pulse rounded"></div>
+                  ) : (
+                    <div className="text-2xl font-bold">{stat.value}</div>
+                  )}
                   <div className="flex items-center gap-1 text-xs mt-1">
                     {stat.trend === 'up' ? (
                       <TrendingUp className="h-3 w-3 text-green-600" />
@@ -229,7 +270,7 @@ const Dashboard = () => {
                     <span className={stat.trend === 'up' ? 'text-green-600' : 'text-red-600'}>
                       {stat.change}
                     </span>
-                    <span className="text-muted-foreground">from last week</span>
+                    <span className="text-muted-foreground"></span>
                   </div>
                 </CardContent>
               </Card>
@@ -303,18 +344,36 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {tasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
-                >
-                  <Checkbox defaultChecked={task.completed} />
-                  <span className={task.completed ? 'line-through text-muted-foreground' : ''}>
-                    {task.text}
-                  </span>
-                  {task.completed && <CheckCircle className="h-4 w-4 text-green-600 ml-auto" />}
-                </div>
-              ))}
+              <div className="flex gap-2 mb-4">
+                <Input 
+                  value={newTaskText}
+                  onChange={(e) => setNewTaskText(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addTask()}
+                  placeholder="Enter a new task..."
+                  className="flex-1"
+                />
+                <Button onClick={addTask}>Add</Button>
+              </div>
+              <div className="space-y-4 max-h-[250px] overflow-y-auto pr-2">
+                {tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors group"
+                  >
+                    <Checkbox 
+                      checked={task.completed} 
+                      onCheckedChange={() => toggleTask(task.id)}
+                    />
+                    <span className={`flex-1 ${task.completed ? 'line-through text-muted-foreground' : ''}`}>
+                      {task.text}
+                    </span>
+                    <button onClick={() => deleteTask(task.id)} className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all">
+                      <X className="h-4 w-4" />
+                    </button>
+                    {task.completed && <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />}
+                  </div>
+                ))}
+              </div>
             </div>
             <Button
               className="w-full mt-4"

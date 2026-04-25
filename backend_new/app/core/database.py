@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 # ---------------------------------------------------------------------------
 # Load .env from the backend root (two levels up from app/core/)
@@ -26,11 +27,7 @@ SYNC_DATABASE_URL: str = os.environ["SYNC_DATABASE_URL"]  # psycopg2 URL (postgr
 # ---------------------------------------------------------------------------
 engine = create_async_engine(
     DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=10,       # Wait max 10s for a connection, then error
-    pool_recycle=300,      # Recycle connections after 5 min (avoids Supabase idle drops)
+    poolclass=NullPool,
     echo=False,
     connect_args={
         "statement_cache_size": 0,
